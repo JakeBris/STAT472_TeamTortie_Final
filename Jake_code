@@ -1,0 +1,354 @@
+library(tidyverse)
+library(ggplot2)
+library(ggfortify)
+library(kableExtra)
+library(gridExtra)
+library(corrplot)
+library(factoextra)
+
+
+df <- read.csv("adult24.csv")
+df2 <- read.csv("adultdf.csv")
+
+
+#histograms for Response Variables
+r2 <- df2 %>% 
+  filter(!is.na(as.factor(urg_vis))) %>%
+  ggplot() +
+  geom_bar(aes(x = urg_vis),fill = "#f7b500", color = "black") +
+  labs(
+    #title = "Bar plot of Number of Times Individuals Visited Urgent Care in a 12-Month Period", 
+    x = "Number of Urgent Care Visits in a 12-Month Period", 
+    y = "Count") + theme_classic(base_size = 16)
+
+r1 <- df2 %>% 
+  filter(!is.na(as.factor(retail_vis))) %>%
+  ggplot() +
+  geom_bar(aes(x = retail_vis),fill = "#66ff00",color = "black") +
+  labs(
+    #title = "Bar plot of Number of Times Individuals Visited Retail Clinics in a 12-Month Period", 
+    x = "Number of Retail Clinics Visits in a 12-Month Period", 
+    y = "Count") + theme_classic(base_size = 16)
+                 
+r4 <-df2 %>% 
+  filter(!is.na(as.factor(emerg_vis))) %>%
+  ggplot() +
+  geom_bar(aes(x = emerg_vis),fill = "#FF5439",color = "black") +
+  labs(
+    #title = "Bar plot of Number of Times Individuals Visited Emergency Room in a 12-Month Period", 
+    x = "Number of Emergency Room Visits in a 12-Month Period", 
+    y = "Count") + theme_classic(base_size = 16)
+  
+r3 <- df2 %>% 
+  filter(!is.na(as.factor(ovrhosp_vis))) %>%
+  ggplot() +
+  geom_bar(aes(x = ovrhosp_vis),fill = "#FF8349",color = "black") +
+  labs(
+    #title = "Bar plot of Number of Times Individuals Stayed in a Hospital Overnight in a 12-Month Period", 
+    x = "Number of Overnight Stays in a 12-Month Period", 
+    y = "Count") + theme_classic(base_size = 16)
+
+
+grid.arrange(r1, r2, r3, r4, ncol = 2, nrow = 2)
+  
+colors_visit <- c("#66ff00","#f7b500","#FF8349", "#FF5439")
+
+
+
+
+# Multivariate Logistic model using df2
+
+library(MGLM)
+
+#df2$cover_status <- as.factor(df2$cover_status)
+
+#df2 <- df2 %>%
+#  mutate(across(where(is.numeric), ~if_else(.x %in% c(7, 8, 9), NA_real_, as.numeric(.x))))
+
+
+set.seed(472)
+
+n <- nrow(df2)
+indices <- sample(1:n, replace = FALSE)
+
+k <- floor(0.8 * n)
+
+df_train <- df2[indices[1:k], ]
+df_test  <- df2[indices[(k+1):n], ]
+
+df_imp_train <- df_train %>%
+  select(-bmi_cat, -cover_65, -cover_u65, -lastdr_vis, -numretail_vis, -numurg_vis, -numemer_vis, -covtype_chip, -covtype_none, -covtype_oth, -covtype_ss, -covtype_ihs, -covtype_mil, -covtype_maid, -covtype_mgap, -covtype_mcare, -covtype_priv, -prost_can, - uter_can, - ovary_can, -cerv_can, -ssi_inc, -dib_type, -hdnck_can, -thyro_can, -throat_can, -stom_can, -skndk_can, -sknnm_can, -sknm_can,  -rect_can, -pan_can, -mouth_can, -melan_can, -lymph_can, -lung_can, -liver_can, -leuk_can, -laryn_can, -gall_can, -esoph_can, -breast_can, -brain_can, 
+         -bone_can, -blood_can, -other_can, -colrcc_can, -colon_can, -bladd_can, -nowther_mh, -wic_inc, -gesdib_ever, -walk_leis, -skiprx_cost, -delayrx_cost, -lessrx_cost)
+
+df_imp_test <- df_test %>%
+  select(-bmi_cat, -cover_65, -cover_u65, -lastdr_vis, -numretail_vis, -numurg_vis, -numemer_vis, -covtype_chip, -covtype_none, -covtype_oth, -covtype_ss, -covtype_ihs, -covtype_mil, -covtype_maid, -covtype_mgap, -covtype_mcare, -covtype_priv, -prost_can, - uter_can, - ovary_can, -cerv_can, -ssi_inc, -dib_type, -hdnck_can, -thyro_can, -throat_can, -stom_can, -skndk_can, -sknnm_can, -sknm_can,  -rect_can, -pan_can, -mouth_can, -melan_can, -lymph_can, -lung_can, -liver_can, -leuk_can, -laryn_can, -gall_can, -esoph_can, -breast_can, -brain_can, 
+         -bone_can, -blood_can, -other_can, -colrcc_can, -colon_can, -bladd_can, -nowther_mh, -wic_inc, -gesdib_ever, -walk_leis, -skiprx_cost, -delayrx_cost, -lessrx_cost)
+
+for (i in c(1,3,7:98)) {
+  df_imp_train[,i] <- as.factor(df_imp_train[,i])
+}
+for (i in c(1,3,7:98)) {
+  df_imp_test[,i] <- as.factor(df_imp_test[,i])
+}
+for (i in c(1,3,7:98)) {
+  df_train[,i] <- as.factor(df_train[,i])
+}
+for (i in c(1,3,7:98)) {
+  df_test[,i] <- as.factor(df_test[,i])
+}
+
+#start with insurance
+mnreg <- MGLMreg(formula = cbind(retail_vis, urg_vis, emerg_vis, ovrhosp_vis) 
+                 ~ as.factor(covtype_priv) + as.factor(cover_status) + as.factor(house_cost)
+                 + as.factor(bill_cost) + as.factor(needmrx_cost) + as.factor(meddl12m), 
+                 data = df_train, 
+                 dist = "DM")
+
+
+show(mnreg) 
+
+coef_mat <- mnreg@coefficients
+
+coef_df <- as.data.frame(coef_mat)
+coef_df$term <- c("Intercept", "Coverage Type = Private",
+                  "Coverage Status = Covered",
+                  "Trouble Paying for Housing = Yes", 
+                  "Problems Paying Medical Bills = Yes",
+                  "Could not Afford Medication = Yes", 
+                  "Delayed Medical Care due to Cost = Yes")
+
+# Reorder columns
+coef_df <- coef_df[, c("term", colnames(coef_mat))]
+
+#exponentiate values
+exp_df <- coef_df
+exp_df[,-1] <- exp(exp_df[,-1])
+
+#add in wald test values
+coef_df$wald_value <- mnreg@wald.value
+exp_df$wald_value <- mnreg@wald.value
+
+#add in p-vals
+coef_df$p_value <- mnreg@wald.p
+exp_df$p_value <- mnreg@wald.p
+
+coef_df %>%
+  mutate(p_value = format.pval(p_value, eps = 0.001, digits = 3))   %>%
+  kable(
+    digits=c(3,3),
+    caption = "Dirichlet-Multinomial Regression Results: Insurance",
+    col.names = c("", "Visited Retail Clinic in last 12m", 
+                  "Visited Urgent Care in last 12m",
+                  "Visited Emergency Room in last 12m",
+                  "Overnight Hospital Stay in last 12m",
+                  "Overall Wald Value",
+                  "Overall p-value")
+  ) %>%
+  kable_styling(full_width = FALSE)
+
+exp_df %>% 
+  mutate(p_value = format.pval(p_value, eps = 0.001, digits = 3))   %>%
+  kable(
+    digits=c(3,3),
+    caption = "Exponentiated Dirichlet-Multinomial Regression Results: Insurance",
+    col.names = c("", "Visited Retail Clinic in last 12m", 
+                  "Visited Urgent Care in last 12m",
+                  "Visited Emergency Room in last 12m",
+                  "Overnight Hospital Stay in last 12m",
+                  "Overall Wald Value",
+                  "Overall p-value")
+  ) %>%
+  kable_styling(full_width = FALSE)
+
+
+tidy_df <- exp_df[,1:5] %>% rename("Visited Retail Clinic in last 12m" = "retail_vis", 
+                                   "Visited Urgent Care in last 12m" = "urg_vis",
+                                   "Visited Emergency Room in last 12m" = "emerg_vis",
+                                   "Overnight Hospital Stay in last 12m" = "ovrhosp_vis") %>%
+  pivot_longer(
+    cols = -term,
+    names_to = "visit_type",
+    values_to = "coefficient"
+  )
+
+ggplot(tidy_df %>% filter(term != "Intercept"),
+       aes(x = visit_type, y = term, fill = coefficient)) +
+  geom_tile() +
+  scale_fill_gradient2(
+    low = "blue",
+    mid = "white",
+    high = "red",
+    midpoint = 1
+  ) +
+  labs(
+    title = "Effect of Predictors on Visit Type Composition",
+    x = "Visit Type",
+    y = "Predictor",
+    fill = "Relative Effect"
+  ) +
+  theme_minimal() +
+  theme(
+    axis.text.x = element_text(size = 16, angle = 25, hjust = 1),
+    axis.text.y = element_text(size = 16),
+    axis.title = element_text(size = 16),
+    plot.title = element_text(size = 18, face = "bold")
+  ) 
+
+
+
+# trying a well-rounded model
+
+mnreg5 <- MGLMreg(formula = cbind(retail_vis, urg_vis, ovrhosp_vis, emerg_vis) 
+                  ~ use_equip + cover_status + dis_status + genhealth_status
+                  + bill_cost + coldflu_sym + can_ever + crime_area + trans_area
+                  + work_lim + use_rx + covid_ever + meddl12m, 
+                  data = df_imp_train, 
+                  dist = "DM")
+
+show(mnreg5) 
+
+
+
+#testing for auc values in model:
+vars_needed5 <- c( "use_equip",  "cover_status" , "dis_status" , "genhealth_status"
+                 , "bill_cost" , "coldflu_sym" , "can_ever" , "crime_area" , "trans_area"
+                 , "work_lim", "use_rx", "covid_ever", "meddl12m")
+
+df_test_clean5 <- df_imp_test[complete.cases(df_imp_test[, vars_needed5]), ]
+
+X_test5 <- model.matrix(~ use_equip + cover_status + dis_status + genhealth_status
+                        + bill_cost + coldflu_sym + can_ever + crime_area + trans_area
+                        + work_lim + use_rx + covid_ever + meddl12m, data = df_test_clean5)
+pred5 <- predict(mnreg5, newdata = X_test5)
+
+Y_test5 <- as.matrix(df_test_clean5[, c("retail_vis","urg_vis", "ovrhosp_vis","emerg_vis")])
+
+auc_values5 <- sapply(1:4, function(j) {
+  roc(Y_test5[, j], pred5[, j])$auc
+})
+
+mean(auc_values5)
+
+#plotting auc curves
+
+roc_list5 <- lapply(1:4, function(j) {
+  roc(Y_test5[, j], pred5[, j])
+})
+
+# plot first curve
+plot(roc_list5[[1]], col = colors_visit[1], main = "ROC Curves")
+
+# add the rest
+for (j in 2:4) {
+  plot(roc_list5[[j]], col = colors_visit[j], add = TRUE)
+}
+
+Y_names <- c("retail visit", "urgent care visit", "overnight hospital", "emergency room")
+
+legend("bottomright",
+       legend = paste0( Y_names[1:4],
+                        " (AUC = ", round(sapply(roc_list5, function(r) r$auc), 3), ")"),
+       col = colors_visit[1:4], lwd = 2)
+
+
+
+
+
+
+coef_mat5 <- mnreg5@coefficients
+
+coef_df5 <- as.data.frame(coef_mat5)
+coef_df5$term <- c("Intercept",
+                  "Uses Equipment = Yes",
+                  "Coverage Status = Covered",
+                  "Disability Status = Not Disabled",
+                  "Very Good Health",
+                  "Good Health",
+                  "Fair Health",
+                  "Poor Health",
+                  "Problems Paying Medical Bills = Yes",
+                  "Cold and flu symptoms = Yes", 
+                  "Ever had cancer = Yes",
+                  "Crime in living area = Yes",
+                  "Public transit avaliable = Yes",
+                  "Limited Work due to Health = Yes",
+                  "Use Medication = Yes",
+                  "Ever Had Covid = Yes",
+                  "Delayed Care due to Cost = Yes")
+
+# Reorder columns
+coef_df5 <- coef_df5[, c("term", colnames(coef_mat))]
+
+#exponentiate values
+exp_df5 <- coef_df5
+exp_df5[,-1] <- exp(exp_df5[,-1])
+
+#add in wald test values
+coef_df5$wald_value <- mnreg5@wald.value
+exp_df5$wald_value <- mnreg5@wald.value
+
+#add in p-vals
+coef_df5$p_value <- mnreg5@wald.p
+exp_df5$p_value <- mnreg5@wald.p
+
+coef_df5 %>%
+  mutate(p_value = format.pval(p_value, eps = 0.001, digits = 3))   %>%
+  kable(
+    digits=c(3,3),
+    caption = "Dirichlet-Multinomial Regression Results",
+    col.names = c("", "Visited Retail Clinic in last 12m", 
+                  "Visited Urgent Care in last 12m",
+                  "Visited Emergency Room in last 12m",
+                  "Overnight Hospital Stay in last 12m",
+                  "Overall Wald Value",
+                  "Overall p-value")
+  ) %>%
+  kable_styling(full_width = FALSE)
+
+exp_df5 %>% 
+  mutate(p_value = format.pval(p_value, eps = 0.001, digits = 3))   %>%
+  kable(
+    digits=c(3,3),
+    caption = "Exponentiated Dirichlet-Multinomial Regression Results",
+    col.names = c("", "Visited Retail Clinic in last 12m", 
+                  "Visited Urgent Care in last 12m",
+                  "Visited Emergency Room in last 12m",
+                  "Overnight Hospital Stay in last 12m",
+                  "Overall Wald Value",
+                  "Overall p-value")
+  ) %>%
+  kable_styling(full_width = FALSE)
+
+
+tidy_df5 <- exp_df5[,1:5] %>% rename("Visited Retail Clinic in last 12m" = "retail_vis", 
+                                   "Visited Urgent Care in last 12m" = "urg_vis",
+                                   "Visited Emergency Room in last 12m" = "emerg_vis",
+                                   "Overnight Hospital Stay in last 12m" = "ovrhosp_vis") %>%
+  pivot_longer(
+    cols = -term,
+    names_to = "visit_type",
+    values_to = "coefficient"
+  )
+
+ggplot(tidy_df5 %>% filter(term != "Intercept"),
+       aes(x = visit_type, y = term, fill = coefficient)) +
+  geom_tile() +
+  scale_fill_gradient2(
+    low = "blue",
+    mid = "white",
+    high = "red",
+    midpoint = 1
+  ) +
+  labs(
+    title = "Effect of Predictors on Visit Type Composition",
+    x = "Visit Type",
+    y = "Predictor",
+    fill = "Relative Effect"
+  ) +
+  theme_minimal() +
+  theme(
+    axis.text.x = element_text(size = 16, angle = 25, hjust = 1),
+    axis.text.y = element_text(size = 16),
+    axis.title = element_text(size = 16),
+    plot.title = element_text(size = 18, face = "bold")
+  ) 
