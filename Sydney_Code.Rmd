@@ -1,0 +1,707 @@
+---
+title: "deep learning"
+author: "Sydney Coughlan"
+date: "2026-03-23"
+output: pdf_document
+---
+
+# Final Pass: Deep Network
+
+```{r}
+library(dplyr)
+library(torch)
+library(tidyverse)
+set.seed(472)
+
+# all categorical variables with different types/ranges, using embedding so that it won't interpret them as numeric
+dfOG <- read_csv("~/Downloads/adultdf (1)(adultdf).csv")
+
+# clean for only relevant variables
+keep_vars <- c(
+"life_satis",
+"worthless_mh",
+"effort_mh",
+"hopeless_mh",
+"restless_mh",
+"nervous_mh",
+"sad_mh",
+"needther_mh",
+"dlyther_mh",
+"nowther_mh",
+"pastther_mh",
+"lonely_mh",
+"tired_mh",
+"pyschdist_mh",
+"dep_mh",
+"anx_mh",
+
+
+"genhealth_status",
+"func_status",
+"dis_status",
+"work_lim",
+"headmood_cond", 
+"dazedmem_cond", 
+"anyinjury_cond", 
+"repstrain_cond", 
+"hndfin_df", 
+"selfcare_df", 
+"cogmem_df", 
+"com_df", 
+"walk_df", 
+"vision_df", 
+"taste_df",
+"smell_df",
+"hear_df",
+"weakhlth_cond",
+"weakimm_cond",
+"psor_ever",          
+"kidweak_ever",
+"dep_ever",
+"anx_ever",
+"arth_ever",
+"copd_ever",
+"dib_ever",
+"dib_type",
+"gesdib_ever",
+"predib_ever",
+"asth_ever",
+"str_ever",
+"attack_ever",
+"chd_ever",
+"chl_ever",
+"hyp_ever",
+
+"coldflu_sym",
+"covid_ever",
+"curresp_sym",
+"sunburn_sym",
+
+"num_can", 
+"can_ever", 
+
+"cover_65", 
+"cover_u65", 
+"cover_status", 
+"house_cost", 
+"bill_cost", 
+"fdbalance_cost", 
+"needmrx_cost", 
+"delayrx_cost", 
+"lessrx_cost", 
+"skiprx_cost", 
+"needmed_cost", 
+"meddl12m", 
+"covtype_none", 
+"covtype_oth", 
+"covtype_ss", 
+"covtype_ihs", 
+"covtype_mil", 
+"covtype_chip", 
+"covtype_maid", 
+"covtype_mgap", 
+"covtype_mcare", 
+"covtype_priv", 
+
+"agep", 
+"pov_ratio", 
+"educ_status", 
+"race", 
+"sex", 
+"marital_status", 
+"region", 
+"urb_rural", 
+
+"anymedcare")
+
+df <- dfOG %>%
+  select(all_of(keep_vars))
+
+# handling NA's by adding one missing category
+for (col in keep_vars) {
+  max_val <- max(df[[col]], na.rm = TRUE)
+  df[[col]][is.na(df[[col]])] <- max_val + 1
+}
+
+# clear up for set up 
+in_vars <- c(
+"life_satis",
+"worthless_mh",
+"effort_mh",
+"hopeless_mh",
+"restless_mh",
+"nervous_mh",
+"sad_mh",
+"needther_mh",
+"dlyther_mh",
+"nowther_mh",
+"pastther_mh",
+"lonely_mh",
+"tired_mh",
+"pyschdist_mh",
+"dep_mh",
+"anx_mh",
+
+
+"genhealth_status",
+"func_status",
+"dis_status",
+"work_lim",
+"headmood_cond", 
+"dazedmem_cond", 
+"anyinjury_cond", 
+"repstrain_cond", 
+"hndfin_df", 
+"selfcare_df", 
+"cogmem_df", 
+"com_df", 
+"walk_df", 
+"vision_df", 
+"taste_df",
+"smell_df",
+"hear_df",
+"weakhlth_cond",
+"weakimm_cond",
+"psor_ever",          
+"kidweak_ever",
+"dep_ever",
+"anx_ever",
+"arth_ever",
+"copd_ever",
+"dib_ever",
+"dib_type",
+"gesdib_ever",
+"predib_ever",
+"asth_ever",
+"str_ever",
+"attack_ever",
+"chd_ever",
+"chl_ever",
+"hyp_ever",
+
+"coldflu_sym",
+"covid_ever",
+"curresp_sym",
+"sunburn_sym",
+
+"num_can", 
+"can_ever", 
+
+"cover_65", 
+"cover_u65", 
+"cover_status", 
+"house_cost", 
+"bill_cost", 
+"fdbalance_cost", 
+"needmrx_cost", 
+"delayrx_cost", 
+"lessrx_cost", 
+"skiprx_cost", 
+"needmed_cost", 
+"meddl12m", 
+"covtype_none", 
+"covtype_oth", 
+"covtype_ss", 
+"covtype_ihs", 
+"covtype_mil", 
+"covtype_chip", 
+"covtype_maid", 
+"covtype_mgap", 
+"covtype_mcare", 
+"covtype_priv", 
+
+"educ_status", 
+"race", 
+"sex", 
+"marital_status", 
+"region", 
+"urb_rural")
+
+target_var <- "anymedcare"
+
+# features as tensor
+feature_tensors <- lapply(df[in_vars], function(x) {
+  x <- as.integer(x)                 
+  max_val <- max(x, na.rm = TRUE)
+  x[is.na(x)] <- max_val + 1 
+  # shifted all indices by +1
+  x <- x + 1                          
+  torch_tensor(x, dtype = torch_long())
+})
+
+# target tensor
+y <- torch_tensor(as.integer(df[[target_var]]), dtype = torch_float())
+
+# split train data
+
+n <- nrow(df)
+train_idx <- sample(1:n, size = 0.8 * n)
+
+train_df <- df[train_idx, ]
+test_df  <- df[-train_idx, ]
+
+train_features <- lapply(train_df[in_vars], function(x) {
+  torch_tensor(as.integer(x) + 1L, dtype = torch_long())
+})
+
+test_features <- lapply(test_df[in_vars], function(x) {
+  torch_tensor(as.integer(x) + 1L, dtype = torch_long())
+})
+
+train_y <- torch_tensor(as.numeric(train_df[[target_var]]), dtype = torch_float())
+test_y  <- torch_tensor(as.numeric(test_df[[target_var]]), dtype = torch_float())
+
+# defining 
+num_categories <- sapply(train_df[in_vars], function(x) max(as.integer(x))) + 1
+embedding_dims <- pmin(10, ceiling(num_categories / 3))
+
+num_categories
+embedding_dims
+
+# custom module
+mymodel <- nn_module(
+  "care_predictor",
+  
+  initialize = function(
+    num_categories, embedding_dims,num_numeric, hidden_dims = c(128, 64, 32)) {
+    self$dropout <- nn_dropout(p = 0.6)
+    self$embeddings <- nn_module_list(
+      lapply(1:length(num_categories), function(i) {
+        nn_embedding(num_embeddings = num_categories[i], 
+                     embedding_dim = embedding_dims[i])
+      })
+    )
+    
+    total_emb_dim <- sum(embedding_dims)
+    all_dims <- c(total_emb_dim + num_numeric, hidden_dims)
+    
+    self$hidden_layers <- nn_module_list(
+      lapply(1:(length(all_dims) - 1), function(i) {
+        nn_linear(all_dims[i], all_dims[i + 1])
+      })
+    )
+    
+    # batch norm initialized with output dim of each hidden layer
+    self$bn_layers <- nn_module_list(
+      lapply(hidden_dims, function(d) nn_batch_norm1d(d))
+    )
+    
+    self$output <- nn_linear(hidden_dims[length(hidden_dims)], 1)
+  },
+  
+  forward = function(x_cat, x_num) {
+    embedded <- lapply(1:length(x_cat), 
+                       function(i) self$embeddings[[i]](x_cat[[i]]))
+    
+    x <- torch_cat(c(embedded, list(x_num)), dim = 2)
+    for (i in 1:length(self$hidden_layers)) {
+      x <- self$hidden_layers[[i]](x)  
+      x <- self$bn_layers[[i]](x)     
+      x <- torch_relu(x)        
+      x <- self$dropout(x)             
+    }
+    
+    x <- torch_sigmoid(self$output(x))
+    x$squeeze(2)
+  }
+)
+
+#setting up numeric vars
+numeric_vars <- c("agep", "pov_ratio")
+
+# normalize to 0-1 range
+normalize <- function(x) (x - min(x)) / (max(x) - min(x))
+
+# proper normalization
+train_mins <- sapply(train_df[numeric_vars], min)
+train_maxs <- sapply(train_df[numeric_vars], max)
+
+normalize_with_params <- function(df, vars, mins, maxs) {
+  matrix(mapply(function(x, mn, mx) (x - mn) / (mx - mn),
+                df[vars], mins, maxs), ncol = length(vars))
+}
+
+train_numeric <- torch_tensor(
+  normalize_with_params(train_df, numeric_vars, train_mins, train_maxs),
+  dtype = torch_float()
+)
+
+test_numeric <- torch_tensor(
+  normalize_with_params(test_df, numeric_vars, train_mins, train_maxs),
+  dtype = torch_float()
+)
+
+# initialized with 3 hidden layers
+model <- mymodel(
+  num_categories = num_categories,
+  embedding_dims = embedding_dims,
+  num_numeric = length(numeric_vars),
+  hidden_dims = c(64, 32, 16)
+)
+
+optimizer <- optim_adam(model$parameters, lr = 0.001, weight_decay = 1e-2)
+
+loss_fn <- nn_bce_loss()
+
+num_epochs <- 75
+batch_size <- 256
+n_train <- length(train_y)
+
+# initialized tracking vectors before the loop
+train_losses <- numeric(num_epochs)
+test_losses  <- numeric(num_epochs)
+train_accs   <- numeric(num_epochs)
+test_accs    <- numeric(num_epochs)
+
+for (epoch in 1:num_epochs) {
+  model$train()
+  idx <- sample(1:n_train)
+
+  for (start in seq(1, n_train, by = batch_size)) {
+  batch_idx <- idx[start:min(start + batch_size - 1, n_train)]
+  batch_x_cat <- lapply(train_features, function(f) f[batch_idx])
+  batch_x_num <- train_numeric[batch_idx, , drop = FALSE]
+  batch_y <- train_y[batch_idx]
+
+  optimizer$zero_grad()
+  preds <- model(batch_x_cat, batch_x_num)$squeeze()
+  loss  <- loss_fn(preds, batch_y)
+  loss$backward()
+  optimizer$step()
+  }
+
+  # epoch metrics
+  model$eval()
+  with_no_grad({
+    train_preds_epoch <- model(train_features, train_numeric)$squeeze()
+    test_preds_epoch  <- model(test_features, test_numeric)$squeeze()
+  })
+
+  train_losses[epoch] <- loss_fn(train_preds_epoch, train_y)$item()
+  test_losses[epoch]  <- loss_fn(test_preds_epoch, test_y)$item()
+  train_accs[epoch]   <- ((train_preds_epoch > 0.5)$to(
+    dtype = torch_float()) == train_y)$to(dtype = torch_float())$mean()$item()
+  test_accs[epoch]    <- ((test_preds_epoch > 0.5)$to(
+    dtype = torch_float()) == test_y)$to(dtype = torch_float())$mean()$item()
+
+  if (epoch %% 5 == 0) {
+    cat(sprintf(
+      "Epoch %d | Train Loss: %.4f | Test Loss: %.4f | Test Acc: %.4f\n",
+                epoch, train_losses[epoch], test_losses[epoch], 
+      test_accs[epoch]))
+  }
+}
+
+model$eval()
+
+with_no_grad({
+  test_preds <- model(test_features, test_numeric)$squeeze()
+})
+
+results_df <- test_df %>%
+  mutate(
+    pred_prob  = as.numeric(test_preds),
+    anymedcare = as.numeric(anymedcare)
+)
+
+test_pred_class <- (test_preds > 0.5)$to(dtype = torch_float())
+accuracy <- (test_pred_class == test_y)$to(dtype = torch_float())$mean()
+accuracy$item()
+pred_probs <- as.numeric(test_preds)
+
+# probability distribution
+prob_df <- data.frame(predicted_prob = as.numeric(test_preds))
+ggplot(prob_df, aes(x = predicted_prob)) +
+  geom_histogram(fill = "lightblue", color = "black") +
+  labs(
+    title = "Distribution of Predicted Probabilities",
+    x = "Predicted Probability",
+    y = "Count"
+  ) +
+  theme_minimal()
+
+metrics_df <- data.frame(
+  epoch      = rep(1:num_epochs, 2),
+  loss       = c(train_losses, test_losses),
+  accuracy   = c(train_accs, test_accs),
+  split      = rep(c("train", "test"), each = num_epochs)
+)
+
+# loss curve
+ggplot(metrics_df, aes(x = epoch, y = loss, color = split)) +
+  geom_line() +
+  labs(title = "Training vs Test Loss", x = "Epoch", y = "BCE Loss", color = NULL) +
+  theme_minimal()
+
+# accuracy curve
+ggplot(metrics_df, aes(x = epoch, y = accuracy, color = split)) +
+  geom_line() +
+  labs(title = "Training vs Test Accuracy", x = "Epoch", y = "Accuracy", color = NULL) +
+  theme_minimal()
+
+```
+
+```{r}
+library(tidyverse)
+library(knitr)
+library(pROC)
+set.seed(472)
+
+# permutation importance
+test_y_vec    <- as.numeric(test_y)
+test_preds_vec <- as.numeric(test_preds)
+
+baseline_acc <- mean((test_preds_vec > 0.5) == test_y_vec)
+
+perm_importance <- sapply(in_vars, function(var) {
+  temp_df <- test_df
+  
+  temp_df[[var]] <- sample(temp_df[[var]])
+  
+  temp_features <- lapply(temp_df[in_vars], function(x) {
+    torch_tensor(as.integer(x) + 1L, dtype = torch_long())
+  })
+  
+  temp_numeric <- torch_tensor(
+    normalize_with_params(temp_df, numeric_vars, train_mins, train_maxs),
+    dtype = torch_float()
+  )
+  
+  with_no_grad({
+    preds <- model(temp_features, temp_numeric)$squeeze()
+  })
+  
+  preds_vec <- as.numeric(preds)
+  acc <- mean((preds_vec > 0.5) == test_y_vec)
+  
+  baseline_acc - acc
+})
+
+# permutation importance plot
+importance_df <- data.frame(
+  variable = in_vars,
+  importance = perm_importance
+) %>%
+  arrange(desc(importance)) %>%
+  slice_head(n = 20)
+
+ggplot(importance_df, aes(x = reorder(variable, importance), y = importance)) +
+  geom_col(fill = "skyblue") +
+  coord_flip() +
+  labs(title = "Neural Network Feature Importance (Permutation)",
+       x = NULL, y = "Drop in Accuracy") +
+  theme_minimal()
+
+# performance table
+roc_obj <- roc(test_y_vec, test_preds_vec)
+auc_val <- auc(roc_obj)
+
+final_loss <- test_losses[num_epochs]
+final_acc  <- test_accs[num_epochs]
+
+null_acc <- max(mean(test_y_vec), 1 - mean(test_y_vec))
+
+performance_table <- data.frame(
+  Metric = c("Test Accuracy", "Null Model Baseline", "Improvement Over Baseline",
+             "Test BCE Loss", "AUC-ROC"),
+  Value  = c(round(final_acc, 3), round(null_acc, 3),
+             round(final_acc - null_acc, 3),
+             round(final_loss, 3), round(auc_val, 3))
+)
+
+kable(performance_table,
+      align   = c("l", "c"),
+      caption = "Deep Entity Embedding Neural Network - Model Performance Summary")
+
+# ROC curve
+roc_df <- data.frame(
+  specificity = rev(roc_obj$specificities),
+  sensitivity = rev(roc_obj$sensitivities)
+)
+
+ggplot(roc_df, aes(x = 1 - specificity, y = sensitivity)) +
+  geom_line(color = "steelblue", linewidth = 1) +
+  geom_abline(slope = 1, intercept = 0, linetype = "dashed", color = "gray50") +
+  annotate("text", x = 0.75, y = 0.25,
+           label = paste0("AUC = ", round(auc_val, 3)),
+           size = 4.5, color = "steelblue") +
+  labs(title = "ROC Curve - Predicted Medical Care Utilization",
+       x = "False Positive Rate (1 - Specificity)",
+       y = "True Positive Rate (Sensitivity)") +
+  theme_minimal()
+
+# conditions and seeking care table
+condition_categories <- list(
+  "Mobility & Physical Function" = c("walk_df", "hndfin_df", "selfcare_df", 
+                                      "repstrain_cond", "anyinjury_cond"),
+  "Cognitive & Mental Health"    = c("dep_ever", "anx_ever", "cogmem_df",
+                                      "headmood_cond", "dazedmem_cond"),
+  "Sensory"                      = c("vision_df", "hear_df", "smell_df", 
+                                      "taste_df", "com_df"),
+  "Respiratory"                  = c("asth_ever", "copd_ever", "curresp_sym", 
+                                      "coldflu_sym"),
+  "Cardiovascular"               = c("hyp_ever", "chd_ever", "str_ever", 
+                                      "attack_ever"),
+  "Metabolic & Endocrine"        = c("dib_ever", "gesdib_ever", 
+                                      "predib_ever", "chl_ever"),
+  "Immune & Inflammatory"        = c("arth_ever", "weakimm_cond", "weakhlth_cond",
+                                      "psor_ever", "kidweak_ever"),
+  "Cancer"                       = c("can_ever"),
+  "Infectious Disease"           = c("covid_ever")
+)
+
+category_rows <- lapply(names(condition_categories), function(cat_name) {
+  vars <- condition_categories[[cat_name]]
+  vars <- vars[vars %in% names(results_df)]
+  
+  any_condition <- rowSums(
+    sapply(vars, function(v) as.integer(results_df[[v]]) == 1)
+  ) > 0
+  
+  subset_df <- results_df[any_condition, ]
+  
+  data.frame(
+    category    = cat_name,
+    mean_pred   = mean(subset_df$pred_prob),
+    actual_rate = mean(as.numeric(subset_df$anymedcare)),
+    n           = nrow(subset_df)
+  )
+}) %>% bind_rows()
+
+category_rows %>%
+  rename(
+    "Health Condition Category"  = category,
+    "Mean Predicted Probability" = mean_pred,
+    "Actual Utilization Rate"    = actual_rate,
+    "N"                          = n
+  ) %>%
+  kable(
+    digits  = 3,
+    align   = c("l", "c", "c", "c"),
+    caption = "Predicted and Actual Medical Visit Rate by Health Condition"
+  )
+
+# conditions plot
+category_rows %>%
+  rename(
+    "Health Condition Category"  = category,
+    "Mean Predicted Probability" = mean_pred,
+    "Actual Utilization Rate"    = actual_rate,
+    "N"                          = n
+  ) %>%
+  ggplot(aes(x = reorder(`Health Condition Category`, `Actual Utilization Rate`),
+             y = `Actual Utilization Rate`)) +
+  geom_col(fill = "steelblue") +
+  geom_point(aes(y = `Mean Predicted Probability`),
+             color = "coral", size = 3) +
+  coord_flip() +
+  labs(title    = "Medical Visit Rate by Health Condition Category",
+       subtitle = "Bars = actual rate, points = model predicted probability",
+       x = NULL, y = "Rate") +
+  theme_minimal()
+
+# insurance type table
+insurance_vars  <- c("covtype_priv", "covtype_mcare", "covtype_maid",
+                     "covtype_mil",  "covtype_ss",    "covtype_none")
+
+insurance_labels <- c("Private Insurance", "Medicare", "Medicaid",
+                      "Military / VA",     "State Supplement", "Uninsured")
+
+insurance_summary <- mapply(function(var, label) {
+  results_df %>%
+    group_by(coverage = .data[[var]]) %>%
+    summarise(
+      actual_rate = mean(as.numeric(anymedcare)),
+      mean_pred   = mean(pred_prob),
+      n           = n(),
+      .groups     = "drop"
+    ) %>%
+    mutate(
+      insurance_type = label,
+      coverage = case_when(
+        coverage == 1 ~ "Yes",
+        coverage == 2 ~ "No",
+        TRUE          ~ "Unknown"
+      )
+    )
+}, insurance_vars, insurance_labels, SIMPLIFY = FALSE)
+
+insurance_df <- bind_rows(insurance_summary) %>%
+  filter(coverage == "Yes") %>%
+  select(insurance_type, actual_rate, mean_pred, n) %>%
+  arrange(desc(actual_rate)) %>%
+  rename(
+    "Insurance Type"             = insurance_type,
+    "Actual Utilization Rate"    = actual_rate,
+    "Mean Predicted Probability" = mean_pred,
+    "N"                          = n
+  )
+
+kable(insurance_df,
+      digits  = 3,
+      align   = c("l", "c", "c", "c"),
+      caption = "Predicted and Actual Medical Visit Rate by Insurance Type")
+
+# insurance plot
+insurance_df %>%
+  ggplot(aes(x = reorder(`Insurance Type`, `Actual Utilization Rate`),
+             y = `Actual Utilization Rate`)) +
+  geom_col(fill = "lightblue") +
+  geom_point(aes(y = `Mean Predicted Probability`),
+             color = "coral", size = 3) +
+  coord_flip() +
+  labs(title = "Medical Visit Rate by Insurance Type",
+       subtitle = "Bars = actual rate, points = model predicted probability",
+       x = NULL, y = "Rate") +
+  theme_minimal()
+
+# parameter table
+param_table <- data.frame(
+  Parameter = c(
+    "Hidden Layer Dimensions",
+    "Embedding Dimensions",
+    "Dropout Rate",
+    "Weight Decay (L2)",
+    "Learning Rate",
+    "Optimizer",
+    "Loss Function",
+    "Batch Size",
+    "Epochs",
+    "Numeric Input Variables",
+    "Normalization"
+  ),
+  Value = c(
+    "64, 32, 16",
+    "min(10, ceiling(categories / 3))",
+    "0.6",
+    "0.01",
+    "0.001",
+    "Adam",
+    "Binary Cross-Entropy",
+    "256",
+    "75",
+    "Age, Poverty Ratio",
+    "Min-Max (0 to 1)"
+  ),
+  Description = c(
+    "Three hidden layers with decreasing neuron counts, compressing the representation toward the binary output",
+    "Each categorical variable is assigned an embedding dimension proportional to its cardinality, capped at 10",
+    "Proportion of neurons randomly deactivated during each training step to prevent overfitting",
+    "Strength of L2 regularization penalty applied to model weights to discourage memorization of training data",
+    "Step size used by the Adam optimizer during each weight update",
+    "Adaptive gradient descent algorithm that adjusts learning rates per parameter during training",
+    "Standard loss function for binary classification that penalizes confident incorrect predictions more heavily",
+    "Number of observations processed before each weight update during mini-batch gradient descent",
+    "Number of complete passes through the training data during model training",
+    "Continuous variables normalized separately and concatenated with embedding outputs before the hidden layers",
+    "Continuous inputs rescaled to a 0 to 1 range using training set minimum and maximum values"
+  )
+)
+
+kable(
+  param_table,
+  align   = c("l", "l", "l"),
+  caption = "Deep Entity Embedding Neural Network - Model Parameters and Descriptions",
+  col.names = c("Parameter", "Value", "Description")
+)
+```
